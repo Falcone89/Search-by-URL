@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Search by URL
  * Description: Search in the content of posts or in any type of ACF field based on URL or keyword.
- * Version: 1.0
+ * Version: 1.1
  * Author: Adam Solymosi
  */
 

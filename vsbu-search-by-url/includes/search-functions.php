@@ -14,7 +14,7 @@ function vsbu_search_acf_nested_fields($fields, $keyword, &$results, $post_id, $
         if (is_string($value) && stripos($value, $keyword) !== false) {
             $results[$post_id][] = array('post_id' => $post_id, 'field' => $parent_key . ' / ' . $key, 'type' => 'acf');
         } elseif (is_array($value) || is_object($value)) {
-            // If the field value is an array or object (like the ACF Relationship field with default return format), recursively search within the subfields
+            // If the field value is an array or object, recursively search within the subfields
             vsbu_search_acf_nested_fields($value, $keyword, $results, $post_id, $parent_key . ' / ' . $key);
         }
     }
@@ -25,12 +25,48 @@ function vsbu_get_posts_by_keyword($keyword) {
 
     echo '<h2>Results in posts - <i>(' . esc_html($keyword) . ')</i></h2>';
 
+    global $wpdb;
+
+    $keyword_wpdb = '%' . $wpdb->esc_like( $keyword ) . '%';
+
+    // Search in meta_value
+    $post_ids_meta = $wpdb->get_col( $wpdb->prepare( "
+        SELECT DISTINCT post_id FROM {$wpdb->postmeta}
+        WHERE meta_value LIKE '%s'
+    ", $keyword_wpdb ) );
+
+    // Search in post_title and post_content
+    $post_ids_post = $wpdb->get_col( $wpdb->prepare( "
+        SELECT ID FROM {$wpdb->posts}
+        WHERE post_title LIKE '%s'
+        OR post_content LIKE '%s'
+    ", $keyword_wpdb, $keyword_wpdb ) );
+
+    // Search in guid
+    $post_ids_guid = $wpdb->get_col( $wpdb->prepare( "
+        SELECT pm.post_id
+        FROM {$wpdb->postmeta} pm
+        INNER JOIN {$wpdb->posts} p ON pm.meta_value LIKE CONCAT('%', p.ID, '%')
+        WHERE p.guid LIKE '%s'
+    ", $keyword_wpdb ) );
+
+    // Search in post_names
+    $post_ids_name = $wpdb->get_col( $wpdb->prepare( "
+        SELECT pm.post_id, pm.meta_value
+        FROM {$wpdb->postmeta} pm
+        JOIN {$wpdb->posts} p ON pm.meta_value REGEXP CONCAT(':\"', p.ID, '\";')
+        WHERE p.post_name LIKE '%s';
+    ", $keyword_wpdb ) );
+
+    // Array of post IDs
+    $post_ids = array_unique(array_merge( $post_ids_meta, $post_ids_post, $post_ids_guid, $post_ids_name ));
+
     // Get the posts
-    // To detect matches with all ACF fields, such as RELATIONSHIP or GALLERY, etc., it is more efficient to iterate through the posts (although it takes more time) instead of using a wpdb query.
     $args = array(
         'post_type' => array('post', 'page', 'product', 'blog-post'),
-        'post_status' => array( 'publish', 'pending', 'draft', 'future', 'private' ),
-        'posts_per_page' => -1,
+        'post_status' => array('publish', 'pending', 'draft', 'future', 'private'),
+        'post__in' => $post_ids,
+        'posts_per_page' => -1
     );
     $posts = get_posts($args);
 
@@ -38,6 +74,11 @@ function vsbu_get_posts_by_keyword($keyword) {
 
     foreach ($posts as $post) {
         $post_id = $post->ID;
+
+        // Check the post title
+        if (stripos($post->post_title, $keyword) !== false) {
+            $results[$post_id][] = array('post_id' => $post_id, 'field' => 'Title', 'type' => 'title');
+        }
 
         // Check the post content
         if (stripos($post->post_content, $keyword) !== false) {
